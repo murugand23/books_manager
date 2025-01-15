@@ -16,3 +16,7 @@ class BookSchema(BaseModel):
     published_date: datetime.date
     summary: str
     genre: str
+
+    class Config:
+        orm_mode = True
+        from_attributes = True
