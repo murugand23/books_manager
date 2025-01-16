@@ -20,3 +20,11 @@ class BookSchema(BaseModel):
     class Config:
         orm_mode = True
         from_attributes = True
+
+class UserSchema(BaseModel):
+    username: str
+    password: str
+
+    class Config:
+        orm_mode = True
+        from_attributes = True
