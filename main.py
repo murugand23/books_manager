@@ -88,7 +88,7 @@ async def register(user: UserSchema):
     users[user.username] = user.password  # storing plain text password (for testing only)
     return {"msg": "User registered successfully"}
 
-@app.post("/token", summary="Login and get access token (please register first)", description="Login and get access token", tags=["auth"])
+@app.post("/token", summary="Get access token (please register and authorize above first)", description="Login/get access token", tags=["auth"])
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     user_password = users.get(form_data.username)
     if not user_password or form_data.password != user_password:  # simple password check
