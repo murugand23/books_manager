@@ -40,7 +40,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 async def register(user: UserSchema):
     if user.username in users:
         raise HTTPException(status_code=400, detail="Username already registered")
-    users[user.username] = user.password  # Storing plain text password (for testing only)
+    users[user.username] = user.password  # storing plain text password (for testing only)
     return {"msg": "User registered successfully"}
 
 @app.post("/login")
