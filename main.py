@@ -65,10 +65,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         if not username:
             logger.warning(f"Authentication failed for user: {username}")
             raise HTTPException(status_code=401, detail="Invalid token or user does not exist")
-        if username not in users:
-            logger.warning(f"Authentication failed for user: {username}")
-            logger.warning(f"User does not exist in users dict: {users, username}")
-            raise HTTPException(status_code=401, detail="User does not exist")
+        # if username not in users:
+        #     logger.warning(f"Authentication failed for user: {username}")
+        #     logger.warning(f"User does not exist in users dict: {users, username}")
+        #     raise HTTPException(status_code=401, detail="User does not exist")
         return username
     except jwt.ExpiredSignatureError:
         logger.error("Token has expired")
