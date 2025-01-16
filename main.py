@@ -1,4 +1,6 @@
-from fastapi import FastAPI, Depends, Query, HTTPException, status
+from fastapi import FastAPI, Depends, Query, HTTPException, status, Request
+from fastapi.responses import JSONResponse
+from sse_starlette.sse import EventSourceResponse
 from sqlalchemy.orm import Session
 from database import SessionLocal
 from models import Book
@@ -8,11 +10,13 @@ from fastapi_pagination.ext.sqlalchemy import paginate
 from auth import create_access_token, oauth2_scheme, SECRET_KEY, ALGORITHM
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError, jwt
+import asyncio
 
 app = FastAPI()
 add_pagination(app)
 
 users = {}
+event_queue = asyncio.Queue()
 
 def get_db():
     db = SessionLocal()
@@ -23,7 +27,7 @@ def get_db():
 
 @app.get("/")
 async def home():
-    return {"message": "Hello World"}
+    return {"message": "Welcome to the Book API!"}
 
 # user auth for protected routes
 async def get_current_user(token: str = Depends(oauth2_scheme)):
@@ -36,14 +40,14 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-@app.post("/register")
+@app.post("/register", summary="Register a new user", description="Register a new user")
 async def register(user: UserSchema):
     if user.username in users:
         raise HTTPException(status_code=400, detail="Username already registered")
     users[user.username] = user.password  # storing plain text password (for testing only)
     return {"msg": "User registered successfully"}
 
-@app.post("/login")
+@app.post("/token", summary="Login and get access token (please register first)", description="Login and get access token")
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     user_password = users.get(form_data.username)
     if not user_password or form_data.password != user_password:  # simple password check
@@ -56,27 +60,29 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@app.post("/books/", response_model=BookSchema)
+@app.post("/books/", response_model=BookSchema, summary="Add a new book", description="Add a new book to the database")
 async def add_book(request: BookCreateSchema, db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
     new_book = Book(title = request.title, author = request.author, published_date = request.published_date, summary = request.summary, genre = request.genre)
     db.add(new_book)
     db.commit()
+    await event_queue.put(f"New book added: {new_book.title}")
     return new_book
 
 
-@app.get("/books/", response_model=Page[BookSchema])
-async def get_books(id: int = Query(None, description="Filter by book ID"), db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
+@app.get("/books/", response_model=Page[BookSchema], summary="Get all books or a specific book", description="Get all books from the database or a specific book by ID")
+async def get_books(id: int = Query(None, description="Filter by book ID"), page: int = Query(1, ge=1, description="Page number"), size: int = Query(10, ge=1, le=100, description="Page size"), db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
     if id:
         book = db.query(Book).filter(Book.id == id).first()
         if not book:
             raise HTTPException(status_code=404, detail="Book not found")
         book_schema = BookSchema.from_orm(book)
+        await event_queue.put(f"Book found: {book_schema.title}")
         return Page[BookSchema](items=[book_schema], total=1, page=1, size=1)
     else:
         return paginate(db.query(Book))
     
 
-@app.put("/books/{id}", response_model=BookSchema)
+@app.put("/books/{id}", response_model=BookSchema, summary="Update a book", description="Update a book in the database")
 async def update_book(id: int, request: BookCreateSchema, db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
     book = db.query(Book).filter(Book.id == id).first()
     if not book:
@@ -87,17 +93,36 @@ async def update_book(id: int, request: BookCreateSchema, db: Session = Depends(
     book.summary = request.summary
     book.genre = request.genre
     db.commit()
+    await event_queue.put(f"Book updated: {book.title}")
     return book
 
 
-@app.delete("/books/{id}")
+@app.delete("/books/{id}", summary="Delete a book", description="Delete a book from the database")
 async def delete_book(id: int, db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
     book = db.query(Book).filter(Book.id == id).first()
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
     db.delete(book)
     db.commit()
+    await event_queue.put(f"Book deleted: {book.title}")
     return {"message": "Book deleted successfully"}
+
+@app.get("/events", summary="Get server sent events (SSE's)", description="Get server sent events --> use curl -N \<url\> -H ""Authorization: Bearer \<token\>"" to test")
+async def sse_get_events(current_user: str = Depends(get_current_user)):
+    async def event_generator():
+        while True:
+            event = await event_queue.get()
+            yield f"{event}"
+    return EventSourceResponse(content=event_generator(), media_type="text/event-stream")
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An internal server error occurred"}
+    )
+            
+
 
 
 
